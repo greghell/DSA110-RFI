@@ -24,10 +24,11 @@ from sat_analysis import *
 from opensky_api import OpenSkyApi
 from mpl_toolkits.basemap import Basemap
 from IPython import display
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import mpu
 import pytz
 import csv
+import requests
 import dsautils.dsa_store as ds
 mpl.rcParams['timezone'] = 'US/Pacific';
 
@@ -68,7 +69,10 @@ def get_triggers(starttime):
             fields = next(csvreader);
             for row in csvreader:
                 rows.append(row);
-                mjds.append(Time(rows[-1][3],format='mjd').to_value('datetime'));
+                try:
+                    mjds.append(Time(rows[-1][3],format='mjd').to_value('datetime'));
+                except Exception:
+                    pass;
     mjds = mdates.date2num(mjds);
     trigghist = np.histogram(mjds,1000);
     return trigghist;
@@ -125,13 +129,15 @@ def plot_incoh_spec(xfreq,alldata,today):
     plt.xlabel('frequency [MHz]');
     plt.ylabel('power [linear]');
     plt.title(today + ' -- incoherent spectrum');
+    plt.tight_layout();
     return ax;
 
 
 ## incoherent sum spectrogram
 
 
-def plot_incoh_specgram(xfreq,times,alldataI,today):
+def plot_incoh_specgram(xfreq,times,alldataI,today,dirs):
+    from matplotlib.ticker import FormatStrFormatter
     fig, ax = plt.subplots(figsize=(16,14));
     tt = ax.imshow(np.flip(10.*np.log10(alldataI),axis=1),aspect='auto',extent=[xfreq[-1],xfreq[0],times[-1],times[0]],interpolation='None');
     ax.yaxis_date();
@@ -139,6 +145,11 @@ def plot_incoh_specgram(xfreq,times,alldataI,today):
     ax.yaxis.set_major_formatter(date_format);
     #fig.autofmt_xdate();
     plt.yticks(rotation = 45);
+    ax2 = ax.twinx();
+    ax2.set_ybound([float(dirs[-1].split('/')[-1]),float(dirs[0].split('/')[-1])]);
+    ax2.yaxis.set_major_formatter(FormatStrFormatter('%.2f'));
+    ax2.invert_yaxis();
+    ax2.set_ylabel('MJD');
     plt.xlabel('frequency [MHz]');
     plt.title(today + ' -- incoherent sum - total intensity [dB]');
     plt.colorbar(tt);
@@ -153,9 +164,9 @@ def plot_four_spec(xfreq,dirs,alldataI,today):
     fig,ax = plt.subplots(alldataI.shape[0],1,figsize=(18,10));
     for k in range(alldataI.shape[0]):
         ax[k].plot(xfreq,alldataI[k,:]);
-        ax[k].set(title=Time(float(dirs[k].split('/')[-1]),format='mjd').to_value('datetime').strftime('%Y-%m-%d %H:%M:%S'),ylabel='power [linear]',xlim=[np.min(xfreq),np.max(xfreq)]);
+        ax[k].set(title=Time(float(dirs[k].split('/')[-1]),format='mjd').to_value('datetime').replace(tzinfo=timezone.utc).astimezone().strftime('%Y-%m-%d %H:%M:%S'),ylabel='power [linear]',xlim=[np.min(xfreq),np.max(xfreq)]);
         ax[k].grid();
-    ax[k].set(ylabel='frequency [MHz]');
+    ax[k].set(xlabel='frequency [MHz]');
     plt.tight_layout();
     return ax;
 
@@ -282,9 +293,9 @@ def plot_sat_map(pass_glo, pass_gal, pass_bei, pass_gps, today):
 def plot_air_traffic(dirs,today):
     
     ndirs = len(dirs);
-    
+
     patAT = '/home/user/T3_detect/satellite/flightdata/';
-    
+
     dirsAT = glob.glob(patAT+'*.npz');
 
     rightnow = datetime.now();
@@ -294,14 +305,14 @@ def plot_air_traffic(dirs,today):
         datetime_object = datetime.strptime(fil.split('/')[-1].strip('.npz'), '%Y-%m-%d_%H:%M:%S')
         if datetime_object < rightnow - timedelta(hours=25.):
             os.remove(fil);
-    
+
     if ndirs < 5:
         filsonehour = [];
         for fil in dirsAT:
             datetime_object = datetime.strptime(fil.split('/')[-1].strip('.npz'), '%Y-%m-%d_%H:%M:%S')
             if datetime_object >= rightnow - timedelta(hours=1.):
                 filsonehour.append(fil);
-    
+
 
     fig, ax = plt.subplots(figsize=(16,12));
     fig_size = plt.rcParams["figure.figsize"];
@@ -332,7 +343,7 @@ def plot_air_traffic(dirs,today):
     dirsAT = glob.glob(patAT+'*.npz');
     dirsAT = np.sort(dirsAT);
     ndirsAT = len(dirsAT);
-    
+
     if ndirs < 5:
         dirsAT = np.sort(filsonehour);
         ndirsAT = len(dirsAT);
@@ -349,7 +360,8 @@ def plot_air_traffic(dirs,today):
             if mpu.haversine_distance((37.233370, -118.283443), (tmp['lat'][kk], tmp['lon'][kk])) < 30.:
                 numplanes[k] += 1;
 
-    plt.title(today + ' -- air traffic over the past 24 hours');
+    plt.title(today + ' -- air traffic over OVRO');
+    plt.tight_layout();
     return ax, dat, numplanes;
 
 
@@ -365,7 +377,10 @@ def air_traffic_ovro(alldataI,tst,numplanes,dat,today):
     date_format = mdates.DateFormatter('%m-%d %H:%M');
     ax[0].xaxis.set_major_formatter(date_format);
     ax[0].tick_params(labelrotation=45);
-    ax[0].set(ylabel='received power',xlim=[np.min((np.min(mpl.dates.date2num(tst)), np.min(mpl.dates.date2num(dat)))),np.max((np.max(mpl.dates.date2num(tst)), np.max(mpl.dates.date2num(dat))))],ylim=[0.,12000.]);
+    if dat != []:
+        ax[0].set(ylabel='received power',xlim=[np.min((np.min(mpl.dates.date2num(tst)), np.min(mpl.dates.date2num(dat)))),np.max((np.max(mpl.dates.date2num(tst)), np.max(mpl.dates.date2num(dat))))],ylim=[0.,12000.]);
+    else:
+        ax[0].set(ylabel='received power',xlim=[np.min(mpl.dates.date2num(tst)),np.max(mpl.dates.date2num(tst))],ylim=[0.,12000.]);
     ax[0].grid();
     ax[1].plot_date(mpl.dates.date2num(dat), numplanes,'*');
     date_format = mdates.DateFormatter('%m-%d %H:%M');
@@ -373,7 +388,10 @@ def air_traffic_ovro(alldataI,tst,numplanes,dat,today):
     ax[1].xaxis.set_major_formatter(date_format);
     ax[1].tick_params(labelrotation=45);
     ax[1].grid();
-    ax[1].set(ylabel='# of planes 30 km from OVRO',xlabel='date / time', xlim=[np.min((np.min(mpl.dates.date2num(tst)), np.min(mpl.dates.date2num(dat)))),np.max((np.max(mpl.dates.date2num(tst)), np.max(mpl.dates.date2num(dat))))]);
+    if dat != []:
+        ax[1].set(ylabel='# of planes 30 km from OVRO',xlabel='date / time', xlim=[np.min((np.min(mpl.dates.date2num(tst)), np.min(mpl.dates.date2num(dat)))),np.max((np.max(mpl.dates.date2num(tst)), np.max(mpl.dates.date2num(dat))))]);
+    else:
+        ax[1].set(ylabel='# of planes 30 km from OVRO',xlabel='date / time', xlim=[np.min(mpl.dates.date2num(tst)),np.max(mpl.dates.date2num(tst))]);
     plt.tight_layout();
     plt.suptitle(today);
     return ax;
@@ -383,7 +401,7 @@ def air_traffic_ovro(alldataI,tst,numplanes,dat,today):
 
 
 def antenna_occupancy(nsnap,xfreq,mask,ants,today):
-    fig,ax = plt.subplots(9,6,figsize=(16,12))
+    fig,ax = plt.subplots(int(np.ceil(nsnap*3/6)),6,figsize=(16,12))
     for i in range(nsnap*3):
         ax[int(np.floor(i/6))][i%6].plot(xfreq,np.mean(mask[i,0,:,:],axis=0)*100.,label='B')
         ax[int(np.floor(i/6))][i%6].plot(xfreq,np.mean(mask[i,1,:,:],axis=0)*100.,label='A',color='black',alpha=0.6);
@@ -393,7 +411,7 @@ def antenna_occupancy(nsnap,xfreq,mask,ants,today):
             ax[int(np.floor(i/6))][i%6].set(xlabel = 'Frequency (MHz)');
         else:
             ax[int(np.floor(i/6))][i%6].set(xticks=[]);
-    for i in range(nsnap*3,9*6):
+    for i in range(nsnap*3,int(np.ceil(nsnap*3/6))*6):
         ax[int(np.floor(i/6))][i%6].set_axis_off();
     plt.suptitle(today + ' -- Spectral occupancy per antenna');
     plt.tight_layout();
@@ -404,7 +422,7 @@ def antenna_occupancy(nsnap,xfreq,mask,ants,today):
 
 
 def antenna_power(nsnap,xfreq,alldata,ants,today):
-    fig,ax = plt.subplots(9,6,figsize=(16,12))
+    fig,ax = plt.subplots(int(np.ceil(nsnap*3/6)),6,figsize=(16,12))
     for i in range(nsnap*3):
         ax[int(np.floor(i/6))][i%6].plot(xfreq,np.mean(alldata[i,0,:,:],axis=0),label='B')
         ax[int(np.floor(i/6))][i%6].plot(xfreq,np.mean(alldata[i,1,:,:],axis=0),label='A',color='black',alpha=0.6);
@@ -414,7 +432,7 @@ def antenna_power(nsnap,xfreq,alldata,ants,today):
             ax[int(np.floor(i/6))][i%6].set(xlabel = 'Frequency (MHz)');
         else:
             ax[int(np.floor(i/6))][i%6].set(xticks=[]);
-    for i in range(nsnap*3,9*6):
+    for i in range(nsnap*3,int(np.ceil(nsnap*3/6))*6):
         ax[int(np.floor(i/6))][i%6].set_axis_off();
     plt.suptitle(today + ' -- Power spectrum per antenna [linear]');
     plt.tight_layout();
@@ -440,5 +458,32 @@ def median_flag_specgram(xfreq,times,mask,today):
     ax[1].set(xlabel='frequency [MHz]', title='median mask -- pol Y');
     ax[1].tick_params(labelrotation=45);
     plt.suptitle(today + ' -- median mask');
+    plt.tight_layout();
+    return ax;
+
+def weather_forecast(today):
+    response = requests.get('https://api.openweathermap.org/data/2.5/forecast?lat=37.233370&lon=-118.283443&appid=f340f25957dbaa37fbad285da8789a36&units=metric');
+    response = response.json();
+
+    numdat = len(response['list']);
+    timarray = [];
+    temps = np.zeros((numdat)); 
+    weath = [];
+
+    for k in range(numdat):
+        temps[k] = response['list'][k]['main']['temp'];
+        timarray.append(datetime.utcfromtimestamp(response['list'][k]['dt']));
+        weath.append(response['list'][k]['weather'][0]['main']);
+
+    times = mdates.date2num(timarray);
+
+    fig, ax = plt.subplots(figsize=(16,5));
+    ax.plot_date(times,temps,'-*');
+    for k in range(numdat):
+        ax.annotate(weath[k],(times[k],temps[k]), textcoords='data');
+    plt.grid();
+    plt.xlabel('time - date');
+    plt.ylabel('temperature [C]');
+    plt.title(today + ' -- weather forecast');
     plt.tight_layout();
     return ax;
