@@ -30,11 +30,14 @@ import dsautils.dsa_store as ds
 mpl.rcParams['timezone'] = 'US/Pacific';
 
 pat = '/home/user/vikram/PLOTS/DATA/';
-nsnap = 17;
 dirs = glob.glob(pat+'59*');
 dirs.sort();
 dirs = dirs[-96:]; # = 24 hours
 ndirs = len(dirs);
+nsnap = len(glob.glob(dirs[-1]+'/data/snap*'));
+for k in range(ndirs):
+    if len(glob.glob(dirs[k]+'/data/snap*')) < nsnap:
+        nsnap = len(glob.glob(dirs[k]+'/data/snap*'));
 
 times = [];
 for k in range(ndirs):
@@ -64,7 +67,7 @@ plt.savefig(fname);
 # plot : incoherent sum spectrogram
 
 
-ax = plot_incoh_specgram(xfreq,times,alldataI,today);
+ax = plot_incoh_specgram(xfreq,times,alldataI,today,dirs);
 fname = '/home/user/data/webPLOTS/rfi/last24hours/incohspecgram.png';
 plt.savefig(fname);
 
