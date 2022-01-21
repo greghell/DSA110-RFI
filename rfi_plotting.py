@@ -30,6 +30,7 @@ import pytz
 import csv
 import requests
 import dsautils.dsa_store as ds
+import pandas as pd
 mpl.rcParams['timezone'] = 'US/Pacific';
 
 
@@ -53,26 +54,21 @@ def get_triggers(starttime):
     ## extract triggers time stamps
     triggdirs = glob.glob('/mnt/data/dsa110/T2/*/');
     triggdirs.sort(key=os.path.getctime);
-
     triggfiles = ['/mnt/data/dsa110/T2/cluster_output.csv'];
-    k = 1;
-    while datetime.fromtimestamp(os.path.getctime(triggdirs[-k])) > starttime:
-        if os.path.isfile(triggdirs[-k]+'cluster_output.csv'):
-            triggfiles.append(triggdirs[-k]+'cluster_output.csv');
-            k = k+1;
-    triggfiles.append(triggdirs[-k]+'cluster_output.csv');
+
+    for k in range(len(triggdirs)):
+        if datetime.fromtimestamp(os.path.getctime(triggdirs[-k])) > starttime:
+            if os.path.isfile(triggdirs[-k]+'cluster_output.csv'):
+                triggfiles.append(triggdirs[-k]+'cluster_output.csv');
+
     mjds = [];
     for fil in triggfiles:
-        rows = [];
-        with open(fil, 'r') as csvfile:
-            csvreader = csv.reader(csvfile);
-            fields = next(csvreader);
-            for row in csvreader:
-                rows.append(row);
-                try:
-                    mjds.append(Time(rows[-1][3],format='mjd').to_value('datetime'));
-                except Exception:
-                    pass;
+        csv_data = pd.read_csv(fil);
+        try:
+            mjds.append(Time(np.asarray(csv_data['mjds']),format='mjd').to_value('datetime'));
+        except:
+            pass;
+    mjds = [item for sublist in mjds for item in sublist];
     mjds = mdates.date2num(mjds);
     trigghist = np.histogram(mjds,1000);
     return trigghist;
@@ -180,7 +176,7 @@ def sat_sep_plot(dirs,alldataI,trigghist,today):
     ndirs = len(dirs);
     for k in range(ndirs):
         tst.append(Time(float(dirs[k].split('/')[-1]),format='mjd').to_value('datetime'));
-    
+
     pass_glo, timdtm = sat_analysis(dirs,'GLONASS');
     pass_gal, timdtm = sat_analysis(dirs,'GALILEO');
     pass_bei, timdtm = sat_analysis(dirs,'BEIDOU');
@@ -296,24 +292,31 @@ def plot_air_traffic(dirs,today):
 
     patAT = '/home/user/T3_detect/satellite/flightdata/';
 
-    dirsAT = glob.glob(patAT+'*.npz');
+    dirsAT = glob.glob(patAT+'*.npy');
 
     rightnow = datetime.now();
 
     # remove oldest files (> 25h old)
     for fil in dirsAT:
-        datetime_object = datetime.strptime(fil.split('/')[-1].strip('.npz'), '%Y-%m-%d_%H:%M:%S')
+        datetime_object = datetime.strptime(fil.split('/')[-1].strip('.npy'), '%Y-%m-%d_%H:%M:%S')
         if datetime_object < rightnow - timedelta(hours=25.):
             os.remove(fil);
 
     if ndirs < 5:
         filsonehour = [];
         for fil in dirsAT:
-            datetime_object = datetime.strptime(fil.split('/')[-1].strip('.npz'), '%Y-%m-%d_%H:%M:%S')
+            datetime_object = datetime.strptime(fil.split('/')[-1].strip('.npy'), '%Y-%m-%d_%H:%M:%S')
             if datetime_object >= rightnow - timedelta(hours=1.):
                 filsonehour.append(fil);
+                
+    dirsAT = glob.glob(patAT+'*.npy');
+    dirsAT = np.sort(dirsAT);
+    ndirsAT = len(dirsAT);
 
-
+    if ndirs < 5:
+        dirsAT = np.sort(filsonehour);
+        ndirsAT = len(dirsAT);
+    
     fig, ax = plt.subplots(figsize=(16,12));
     fig_size = plt.rcParams["figure.figsize"];
     fig_size[0] = 10;
@@ -324,6 +327,26 @@ def plot_air_traffic(dirs,today):
     m.drawmapboundary(fill_color='white');
     m.drawstates();
     m.drawrivers(color='aqua');
+    
+    dat = [];    #day/time
+    numplanes = np.zeros((ndirsAT));    # number of planes within 10km from OVRO
+    allda = np.empty((0,3));
+    for k in range(ndirsAT):
+        tmp = np.load(dirsAT[k],allow_pickle=True);
+        dat.append(datetime.strptime(dirsAT[k].split('/')[-1].strip('.npy'), '%Y-%m-%d_%H:%M:%S').astimezone(pytz.timezone("America/Los_Angeles")));
+        try:
+            da = np.zeros((len(tmp),3));
+            for kk in range(len(tmp)):
+                da[kk,:] = [tmp[kk].longitude, tmp[kk].latitude, tmp[kk].altitude];
+                if mpu.haversine_distance((37.233370, -118.283443), (tmp[kk].latitude, tmp[kk].longitude)) < 10.:
+                    numplanes[k] += 1;
+            allda = np.append(allda,da,0);
+        except:
+            pass;
+    x, y = m(allda[:,0], allda[:,1]);
+
+    sc = plt.scatter(x, y, s = 2, c=allda[:,2]);#'#EEB011');#, alpha=0.1+(k+1)/ndirsAT*0.9);
+
     x, y = m(-118.283443,37.233370);    # OVRO
     plt.scatter(x, y, s = 15, c='r');
     plt.annotate('OVRO',(x,y));
@@ -340,27 +363,21 @@ def plot_air_traffic(dirs,today):
     plt.scatter(x, y, s = 15, c='k');
     plt.annotate('Las Vegas',(x,y));
 
-    dirsAT = glob.glob(patAT+'*.npz');
-    dirsAT = np.sort(dirsAT);
-    ndirsAT = len(dirsAT);
+    # dat = [];    #day/time
+    # numplanes = np.zeros((ndirsAT));    # number of planes within 30km from OVRO
 
-    if ndirs < 5:
-        dirsAT = np.sort(filsonehour);
-        ndirsAT = len(dirsAT);
-
-    dat = [];    #day/time
-    numplanes = np.zeros((ndirsAT));    # number of planes within 30km from OVRO
-
-    for k in range(ndirsAT):
-        tmp = np.load(dirsAT[k]);
-        x, y = m(tmp['lon'], tmp['lat']);
-        plt.scatter(x, y, s = 3, c='#EEB011', alpha=0.1+(k+1)/ndirsAT*0.9);
-        dat.append(datetime.strptime(dirsAT[k].split('/')[-1].strip('.npz'), '%Y-%m-%d_%H:%M:%S').astimezone(pytz.timezone("America/Los_Angeles")));
-        for kk in range(len(tmp['lon'])):
-            if mpu.haversine_distance((37.233370, -118.283443), (tmp['lat'][kk], tmp['lon'][kk])) < 30.:
-                numplanes[k] += 1;
+    # for k in range(ndirsAT):
+        # tmp = np.load(dirsAT[k]);
+        # x, y = m(tmp['lon'], tmp['lat']);
+        # plt.scatter(x, y, s = 3, c='#EEB011', alpha=0.1+(k+1)/ndirsAT*0.9);
+        # dat.append(datetime.strptime(dirsAT[k].split('/')[-1].strip('.npz'), '%Y-%m-%d_%H:%M:%S').astimezone(pytz.timezone("America/Los_Angeles")));
+        # for kk in range(len(tmp['lon'])):
+            # if mpu.haversine_distance((37.233370, -118.283443), (tmp['lat'][kk], tmp['lon'][kk])) < 30.:
+                # numplanes[k] += 1;
 
     plt.title(today + ' -- air traffic over OVRO');
+    cbar = plt.colorbar(sc);
+    cbar.ax.set_ylabel('altitude [ft]', rotation=270);
     plt.tight_layout();
     return ax, dat, numplanes;
 
@@ -389,9 +406,98 @@ def air_traffic_ovro(alldataI,tst,numplanes,dat,today):
     ax[1].tick_params(labelrotation=45);
     ax[1].grid();
     if dat != []:
-        ax[1].set(ylabel='# of planes 30 km from OVRO',xlabel='date / time', xlim=[np.min((np.min(mpl.dates.date2num(tst)), np.min(mpl.dates.date2num(dat)))),np.max((np.max(mpl.dates.date2num(tst)), np.max(mpl.dates.date2num(dat))))]);
+        ax[1].set(ylabel='# of planes 10 km from OVRO',xlabel='date / time', xlim=[np.min((np.min(mpl.dates.date2num(tst)), np.min(mpl.dates.date2num(dat)))),np.max((np.max(mpl.dates.date2num(tst)), np.max(mpl.dates.date2num(dat))))]);
     else:
-        ax[1].set(ylabel='# of planes 30 km from OVRO',xlabel='date / time', xlim=[np.min(mpl.dates.date2num(tst)),np.max(mpl.dates.date2num(tst))]);
+        ax[1].set(ylabel='# of planes 10 km from OVRO',xlabel='date / time', xlim=[np.min(mpl.dates.date2num(tst)),np.max(mpl.dates.date2num(tst))]);
+    plt.tight_layout();
+    plt.suptitle(today);
+    return ax;
+
+def air_traffic_skyplot(dirs,today):
+    
+    ndirs = len(dirs);
+
+    patAT = '/home/user/T3_detect/satellite/flightdata/';
+
+    dirsAT = glob.glob(patAT+'*.npy');
+
+    rightnow = datetime.now();
+
+    # remove oldest files (> 25h old)
+    for fil in dirsAT:
+        datetime_object = datetime.strptime(fil.split('/')[-1].strip('.npy'), '%Y-%m-%d_%H:%M:%S')
+        if datetime_object < rightnow - timedelta(hours=25.):
+            os.remove(fil);
+
+    if ndirs < 5:
+        filsonehour = [];
+        for fil in dirsAT:
+            datetime_object = datetime.strptime(fil.split('/')[-1].strip('.npy'), '%Y-%m-%d_%H:%M:%S')
+            if datetime_object >= rightnow - timedelta(hours=1.):
+                filsonehour.append(fil);
+
+    dirsAT = glob.glob(patAT+'*.npy');
+    dirsAT = np.sort(dirsAT);
+    ndirsAT = len(dirsAT);
+
+    if ndirs < 5:
+        dirsAT = np.sort(filsonehour);
+        ndirsAT = len(dirsAT);
+    
+    allda = np.empty((0,3));
+    for k in range(ndirsAT):
+        tmp = np.load(dirsAT[k],allow_pickle=True);
+        try:
+            da = np.zeros((len(tmp),3));
+            for kk in range(len(tmp)):
+                da[kk,:] = [tmp[kk].longitude, tmp[kk].latitude, tmp[kk].altitude];
+            allda = np.append(allda,da,0);
+        except:
+            pass;
+    
+    angle = np.zeros((len(allda)));
+    r = np.zeros((len(allda)));
+    
+    ovro = np.asarray([-118.4066103,37.3665175]);
+    norvec = [0,1];
+    
+    for k in range(len(allda)):
+        fl = np.asarray([allda[k,0],allda[k,1]]);
+        tofl = fl-ovro;
+
+        unit_vector_1 = tofl / np.linalg.norm(tofl)
+        unit_vector_2 = norvec / np.linalg.norm(norvec)
+        dot_product = np.dot(unit_vector_1, unit_vector_2)
+        angle[k] = np.arccos(dot_product);
+        if tofl[0] > 0:
+            angle[k] = -angle[k];
+        di = mpu.haversine_distance(np.roll(ovro,1),np.roll(fl,1)) * 1000.; # proj distance on earth in m
+        r[k] = 90.-np.degrees(np.arctan(allda[k,2] / di));
+    
+    ax = plt.subplot(111, polar=True);
+    # for kk in range(ndirsAT):
+        # fdat = np.load(dirsAT[kk],allow_pickle=True);
+        # altvec = fdat['alt'];
+        # altvec[np.where(altvec==None)[0]] = 0;
+
+        # for k in range(len(fdat['lat'])):
+            # fl = np.asarray([fdat['lon'][k],fdat['lat'][k]]);
+            # tofl = fl-ovro;
+
+            # unit_vector_1 = tofl / np.linalg.norm(tofl)
+            # unit_vector_2 = norvec / np.linalg.norm(norvec)
+            # dot_product = np.dot(unit_vector_1, unit_vector_2)
+            # angle = np.arccos(dot_product);
+            # if tofl[0] > 0:
+                # angle = -angle;
+            # di = mpu.haversine_distance(np.roll(ovro,1),np.roll(fl,1)) * 1000.; # proj distance on earth in m
+            # r = 90.-np.degrees(np.arctan(altvec[k] / di));
+            # ax.plot(angle,r,'y.',markersize=3.,alpha = 0.1+(kk+1)/ndirsAT*0.9);
+    ax.plot(angle,r,'y.',markersize=3.);
+    ax.set_theta_zero_location("N");
+    ax.set_rmax(90);
+    ax.grid(True);
+    ax.set_xticklabels(['N', '', 'W', '', 'S', '', 'E', '']);
     plt.tight_layout();
     plt.suptitle(today);
     return ax;
@@ -401,7 +507,7 @@ def air_traffic_ovro(alldataI,tst,numplanes,dat,today):
 
 
 def antenna_occupancy(nsnap,xfreq,mask,ants,today):
-    fig,ax = plt.subplots(int(np.ceil(nsnap*3/6)),6,figsize=(16,12))
+    fig,ax = plt.subplots(int(np.ceil(nsnap*3/6)),6,figsize=(16,int(np.ceil(nsnap*3/6))*2))
     for i in range(nsnap*3):
         ax[int(np.floor(i/6))][i%6].plot(xfreq,np.mean(mask[i,0,:,:],axis=0)*100.,label='B')
         ax[int(np.floor(i/6))][i%6].plot(xfreq,np.mean(mask[i,1,:,:],axis=0)*100.,label='A',color='black',alpha=0.6);
@@ -422,7 +528,7 @@ def antenna_occupancy(nsnap,xfreq,mask,ants,today):
 
 
 def antenna_power(nsnap,xfreq,alldata,ants,today):
-    fig,ax = plt.subplots(int(np.ceil(nsnap*3/6)),6,figsize=(16,12))
+    fig,ax = plt.subplots(int(np.ceil(nsnap*3/6)),6,figsize=(16,int(np.ceil(nsnap*3/6))*2))
     for i in range(nsnap*3):
         ax[int(np.floor(i/6))][i%6].plot(xfreq,np.mean(alldata[i,0,:,:],axis=0),label='B')
         ax[int(np.floor(i/6))][i%6].plot(xfreq,np.mean(alldata[i,1,:,:],axis=0),label='A',color='black',alpha=0.6);
