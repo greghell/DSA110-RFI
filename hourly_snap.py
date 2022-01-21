@@ -41,7 +41,14 @@ for fname in allpngs:
 pat = '/home/user/vikram/PLOTS/DATA/';
 dirs = glob.glob(pat+'59*');
 dirs.sort();
-dirs = dirs[-4:]; # = 24 hours
+dirs = dirs[-4:]; # = 1 hours
+ndirs = len(dirs);
+idxzer = np.empty((0), int);
+for k in range(ndirs):
+    if len(glob.glob(dirs[k]+'/data/snap*')) == 0:
+        idxzer = np.append(idxzer,k);
+for index in sorted(idxzer, reverse=True):
+    del dirs[index];
 ndirs = len(dirs);
 nsnap = len(glob.glob(dirs[-1]+'/data/snap*'));
 for k in range(ndirs):
@@ -76,20 +83,20 @@ plt.savefig('/home/user/data/webPLOTS/rfi/current_incohspec.png');
 
 # plot : incoherent sum spectrogram
 
-
-ax = plot_incoh_specgram(xfreq,times,alldataI,today,dirs);
-fname = '/home/user/data/webPLOTS/rfi/allpngs/incohspecgram_' + today + '.png';
-plt.savefig(fname);
-plt.savefig('/home/user/data/webPLOTS/rfi/current_incohspecgram.png');
+if alldataI.shape[0] > 1:
+    ax = plot_incoh_specgram(xfreq,times,alldataI,today,dirs);
+    fname = '/home/user/data/webPLOTS/rfi/allpngs/incohspecgram_' + today + '.png';
+    plt.savefig(fname);
+    plt.savefig('/home/user/data/webPLOTS/rfi/current_incohspecgram.png');
 
 
 # plot 4 indivudual spectra
 
-
-ax = plot_four_spec(xfreq,dirs,alldataI,today);
-fname = '/home/user/data/webPLOTS/rfi/allpngs/four_specs_' + today + '.png';
-plt.savefig(fname);
-plt.savefig('/home/user/data/webPLOTS/rfi/current_four_specs.png');
+if alldataI.shape[0] > 1:
+    ax = plot_four_spec(xfreq,dirs,alldataI,today);
+    fname = '/home/user/data/webPLOTS/rfi/allpngs/four_specs_' + today + '.png';
+    plt.savefig(fname);
+    plt.savefig('/home/user/data/webPLOTS/rfi/current_four_specs.png');
 
 
 # plot : power vs satellites passes
@@ -124,6 +131,15 @@ plt.savefig(fname);
 plt.savefig('/home/user/data/webPLOTS/rfi/current_air_traffic_near_ovro.png');
 
 
+## SKYPLOT AIR TRAFFIC
+
+
+ax = air_traffic_skyplot(dirs,today);
+fname = '/home/user/data/webPLOTS/rfi/allpngs/air_traffic_skyplot_' + today + '.png';
+plt.savefig(fname);
+plt.savefig('/home/user/data/webPLOTS/rfi/current_air_traffic_skyplot.png');
+
+
 # first plot : occupancy vs freq
 
 
@@ -143,15 +159,14 @@ plt.savefig('/home/user/data/webPLOTS/rfi/current_power.png');
 
 
 # plot median mask
-
-ax = median_flag_specgram(xfreq,times,mask,today);
-fname = '/home/user/data/webPLOTS/rfi/allpngs/medmask_' + today + '.png';
-plt.savefig(fname);
-plt.savefig('/home/user/data/webPLOTS/rfi/current_medmask.png');
+if alldataI.shape[0] > 1:
+    ax = median_flag_specgram(xfreq,times,mask,today);
+    fname = '/home/user/data/webPLOTS/rfi/allpngs/medmask_' + today + '.png';
+    plt.savefig(fname);
+    plt.savefig('/home/user/data/webPLOTS/rfi/current_medmask.png');
 
 
 # plot weather forecast
-
 
 ax = weather_forecast(today);
 fname = '/home/user/data/webPLOTS/rfi/allpngs/weather_' + today + '.png';
